@@ -1,69 +1,80 @@
-import time
-from math import inf
-from tqdm import tqdm
-import random
-import numpy as np
-from src.solver.gurobi import MIPSolver
+from __future__ import annotations
 
-def MIP2Step_Solver(reader, logger, tools, fileName, config):
-    output_folder = config['config']['output']
-    pname = fileName.split('.xml')[0]
+import json
+import logging
+from pathlib import Path
+from typing import Any, Dict, List
 
-    logger.info(f"{reader.path.name} with {len(reader.courses)} courses, {len(reader.classes)} classes, {len(reader.rooms)} rooms, {len(reader.students)} students, {len(reader.distributions['hard_constraints'])} hard distributions, {len(reader.distributions['soft_constraints'])} soft distributions")
-    solver = MIPSolver(reader, logger, config)
+from src.data.DataReader import DataReader
+from src.data.GraphMapping import GraphMapping
+from src.optimazier.GRAPH import GraphOptimizer
+from src.optimazier.MARL import MARLOptimizer
 
-    # 构建模型
-    if config['method'].get('reproduction', False):
-        model_path = f'{output_folder}/{pname}/{pname}'
-        solver.load_model(model_path)
-    else:
-        solver.build_model()
 
-    # 求解
-    epoch = int(config['method']['epoch'])
-    c = 1
-    Total_cost = []
-    for i in range(epoch):
-        assignments_list = solver.solve()
+def _collect_instances(base_dir: Path, split: str) -> List[Path]:
+    split_dir = base_dir / split
+    return sorted(split_dir.glob("*.xml"))
 
-        if len(assignments_list) > 0:
-            output_path = f'{output_folder}/{pname}/{pname}'
-            solver.save_model(output_path)
 
-        for assignments in assignments_list:
-            output_file = f'{output_folder}/{pname}/solution{c}_{pname}.xml'
-            c += 1
-            if c >= 100:
-                logger.info("====100 solution====")
-                return
-            quality = solver.save_solution(assignments, output_file, config)
-            logger.info(f"initial solution quality:")
-            if len(quality['not assignment']) == 0:
-                logger.info(f"Valid solution: True")
-                logger.info(f"Total cost: {quality['Total cost']}")
-                Total_cost.append((quality['Total cost'], output_file))
-                logger.info(f"Time penalty: {quality['Time penalty']}")
-                logger.info(f"Room penalty: {quality['Room penalty']}")
-                logger.info(f"Distribution penalty: {quality['Distribution penalty']}")
-            else:
-                logger.info(f"Valid solution: False")
-                logger.info(f"{len(quality['not assignment'])}/{len(reader.classes)} class no vaild assignment")
-    sorted(Total_cost, key=lambda k:k[0])
-    logger.info(f"Minial Total_cost {Total_cost[0][0]} file {Total_cost[0][1]}")
-    
+def run(config: Dict[str, Any]) -> Dict[str, Any]:
+    logger = logging.getLogger("stt.train")
 
-def MIP3Step_Solver(reader, logger, tools, fileName, config):
-    output_folder = config['config']['output']
-    pname = fileName.split('.xml')[0]
+    data_root = Path(config["paths"]["data_source"])
+    output_dir = Path(config["output"]["dir"]) / "training"
+    output_dir.mkdir(parents=True, exist_ok=True)
 
-    output_file = f'{output_folder}/solution_{pname}.xml'
+    # Training scaffolding does not call MIP directly; matrix=False is lighter.
+    reader = DataReader(matrix=False)
+    train_cfg = config.get("train", {})
+    max_per_split = int(train_cfg.get("max_instances_per_split", 2))
 
-    logger.info(f"{reader.path.name} with {len(reader.courses)} courses, {len(reader.classes)} classes, {len(reader.rooms)} rooms, {len(reader.students)} students, {len(reader.distributions['hard_constraints'])} hard distributions, {len(reader.distributions['soft_constraints'])} soft distributions")
-    solver = TwoStepSolverTimeFirst(reader, logger, config)
+    early_paths = _collect_instances(data_root, "early")[:max_per_split]
+    middle_paths = _collect_instances(data_root, "middle")[:max_per_split]
+    train_paths = early_paths + middle_paths
+    val_paths = _collect_instances(data_root, "late")[:max_per_split]
+    test_paths = _collect_instances(data_root, "test")
 
-    # 构建并求解模型
-    assignments = solver.build_and_solve()
+    train_instances = [reader.read(p) for p in train_paths]
+    val_instances = [reader.read(p) for p in val_paths]
 
-    # 保存解决方案
-    if assignments:
-        solver.save_solution(assignments, output_file, config)
+    graph_train = [GraphMapping(inst).build() for inst in train_instances]
+    graph_val = [GraphMapping(inst).build() for inst in val_instances]
+
+    marl = MARLOptimizer(config=config.get("optimizer", {}).get("marl", {}))
+    graph_opt = GraphOptimizer(config=config.get("optimizer", {}).get("graph", {}))
+
+    artifacts = {
+        "train_instances": len(train_instances),
+        "val_instances": len(val_instances),
+        "test_instances": len(test_paths),
+        "graph_train_samples": len(graph_train),
+        "graph_val_samples": len(graph_val),
+        "marl": "scaffold_only",
+        "graph": "scaffold_only",
+    }
+
+    # Keep scaffolding explicit: call interfaces and capture deferred status.
+    try:
+        marl.train(train_instances, solutions={}, output_dir=output_dir)
+        artifacts["marl"] = "trained"
+    except NotImplementedError as exc:
+        logger.info("MARL train skipped: %s", exc)
+
+    try:
+        graph_opt.train(graph_train, solutions={}, output_dir=output_dir)
+        artifacts["graph"] = "trained"
+    except NotImplementedError as exc:
+        logger.info("GRAPH train skipped: %s", exc)
+
+    artifacts_path = output_dir / "artifacts.json"
+    artifacts_path.write_text(json.dumps(artifacts, indent=2), encoding="utf-8")
+    return artifacts
+
+
+# Backward-compatible stubs preserved for legacy imports.
+def MIP2Step_Solver(*args, **kwargs):  # pragma: no cover
+    raise NotImplementedError("Use main.py pipeline/batch mode for v1 execution.")
+
+
+def MIP3Step_Solver(*args, **kwargs):  # pragma: no cover
+    raise NotImplementedError("Use main.py pipeline/batch mode for v1 execution.")

@@ -1,6 +1,9 @@
 import itertools
 import numpy as np
-import torch
+try:
+    import torch
+except Exception:  # pragma: no cover
+    from src.utils.torch_compat import torch
 
 class ConstraintBase:
     def __init__(self):

@@ -1,5 +1,8 @@
 import pathlib
-import torch
+try:
+    import torch
+except Exception:  # pragma: no cover
+    from src.utils.torch_compat import torch
 import xml.etree.ElementTree as ET
 
 class PSTTReader:

@@ -4,7 +4,10 @@ import numpy as np
 from collections import defaultdict
 from itertools import combinations
 import time
-import torch
+try:
+    import torch
+except Exception:  # pragma: no cover
+    from src.utils.torch_compat import torch
 from tqdm import tqdm
 from src.utils.dataReader import PSTTReader
 from src.utils.validator import solution

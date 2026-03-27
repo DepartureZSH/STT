@@ -1,0 +1,40 @@
+pipeline:
+  mode: pipeline
+  segmentation_threshold_n: 250
+
+paths:
+  data_source: data/source
+  default_instance: data/source/early/bet-fal17.xml
+  batch_input_dir: data/source/early
+
+mip:
+  time_limit: 120
+  threads: 4
+  mip_gap: 0.01
+  pool_solutions: 10
+
+train:
+  max_instances_per_split: 2
+
+optimizer:
+  sota:
+    enabled: true
+    budget_sec: 2.0
+  marl:
+    enabled: false
+  graph:
+    enabled: false
+
+output:
+  dir: outputs
+  include_students: false
+  technique: MIP+SOTA
+  author: STT Team
+  institution: STT Lab
+  country: CN
+
+repro:
+  seed: 42
+
+logging:
+  level: INFO

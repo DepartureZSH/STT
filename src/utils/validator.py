@@ -3,7 +3,10 @@ from src.utils.dataReader import PSTTReader
 import pathlib
 import yaml
 import copy
-import torch
+try:
+    import torch
+except Exception:  # pragma: no cover
+    from src.utils.torch_compat import torch
 import json
 import numpy as np
 from src.utils.constraints import HardConstraints, SoftConstraints

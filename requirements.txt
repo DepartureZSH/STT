@@ -1,0 +1,10 @@
+gurobipy>=11.0
+networkx>=3.2
+python-louvain>=0.16
+torch>=2.2
+numpy>=1.26
+pandas>=2.0
+PyYAML>=6.0
+tqdm>=4.66
+xmltodict>=0.13
+pytest>=8.0
